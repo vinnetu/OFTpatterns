@@ -1,0 +1,226 @@
+bases-own [
+  ; stored resources - @todo maybe remove
+  resources-stored
+  
+  ; population of the base - is used to calculate energy consumption
+  population
+  
+  ; how many days are we anticipating to stay? For evaluating goodness for loc.
+  expected-time 
+  
+  ; record for reporting how many moves made?
+  moves
+  
+  ; length of all movements
+  travelled
+  
+  ; length of last move
+  last-move-length
+  
+  ; time at a place, variable name can be misleading, but min of it is 1
+  notmoved
+  
+  ; time of foraging during last tick
+  log-mobility-turn
+  
+  ; helper variables for observing / debugging agents
+  place-util
+  best-alt-util
+  best-alt-util-util
+  self-util
+  alt-xcor
+  alt-ycor
+]
+; Setup all bases
+to setup-bases
+  
+  ; Start with random location in the environment
+  create-bases num-bases [
+    ifelse random-start [setxy random-xcor random-ycor]
+    [setxy -40 (random-ycor)]
+    ;[setxy (random 10 - 35 ) (random 10 - 35)]
+  ]
+  
+  ; Set base appearance and data
+  ask bases [
+    set shape "house"
+    set color who * 10 + 5;red
+    set size 3
+    set population base-population;floor global-population / num-bases
+    set expected-time 1 ; + random 20
+    ;set expected-time 1
+  ]
+  
+  reset-ticks
+end
+
+; Check is there a better place, if it's better to move to the new place - move
+; The goal of the function is weight costs at staying at current location to 
+; moving to best alternative location
+; All the costs are in time units of 1 tick. So the question is which 
+; location takes smaller summed time effort in ticks to forage energy required
+; by local population
+
+to move [a] 
+  dout "Agent moving"
+  dout who
+  
+  let orig-patch [patch-here] of a
+  calc-utility orig-patch
+  let orig-util  days-per-tick * [utility] of orig-patch
+  
+  ; minimum value is, because every place is always used at least once
+  if notmoved = 0 [
+    set notmoved 1 
+  ]
+  
+  let agent-population [population] of a
+  
+  ; costs for residential move human hours for moving, we are currently calculating individual foragers
+  ; percepton of costs - original in hours, convert to ticks
+  let move-s-cost move-start-cost / (8 * days-per-tick) 
+  
+  ; let's select best site 
+  ; @todo maybe add that it has the highest utility of neighbors for speeding things up 8x? 
+  let _candidates patches with [distance myself < max-residential-move and (distance myself > 0)]
+  
+  ; required energy rate for population per tick
+  let req-rate population * energy-per-person * days-per-tick
+  
+  ; Calculate max stay at current location using formula (math.e**(req*a*t/y0)-1)/a
+  ; We just iterate here not to go for anothe differential equation
+  let max-stay 0
+  let c 0
+  ; No longer than year stay and go when doesn't work
+  
+  ifelse orig-util < min-usable-utility [
+    set max-stay 1 
+  ]
+  [
+    while [c <= max-stay and max-stay < (365 / days-per-tick) ]
+    [
+      set max-stay max-stay + 1
+      ;set c ( (e ^ (depletion-rate * max-stay)) * (depletion-rate * max-stay * req-rate ) + (req-rate)) / (depletion-rate * depletion-rate * orig-util)
+      set c ( (e ^ (depletion-rate * max-stay * req-rate / orig-util)) - 1 ) / depletion-rate
+      
+    ]
+  ]
+  dout "Max"
+  dout max-stay
+  
+  set move-time-anticip expected-time
+  ;max-stay - 1
+  
+  ; calculate comparison, shall we win in time, in case we think of a timespan of move-time-anticip
+  ; divide it by number of agents on the spot already
+  
+  ; Calculate time (costs) used for getting required food resources with moving to this place for anticipated time
+  ; period
+  let move-costs 0
+  ask _candidates [
+    ; (math.e**(req*a*t/y0)-1)/a + movement costs
+    ; for movement costs we need to define it as (population * distance / speed) / 8 * days_per_tick assuming moving worday also 
+    ; should we add agent population? agent-population *
+    
+    ; basically time not used for foraging by individual forager in units of ticks considering 8h maximum workdays
+    set move-costs ( distance a * patch-size-km / (residential-move-speed * 8 * days-per-tick)) + move-s-cost
+    
+    ; this location won't help
+    ifelse utility < min-usable-utility [
+      set tmp-agent-costs 100000
+    ]
+    ; calculate the summed time costs required to feed population to move-time-anticip ticks 
+    [
+      set tmp-agent-costs (e ^ (depletion-rate * move-time-anticip * req-rate / (utility * days-per-tick) ) - 1 ) / depletion-rate + move-costs
+    ]
+  ]
+  
+  ; Select the site with fastest harvesting
+  let ideal-site min-one-of _candidates [tmp-agent-costs]
+  let self-costs 100000
+  
+  if orig-util > min-usable-utility [
+    set self-costs (e ^ (depletion-rate * move-time-anticip * req-rate / orig-util) - 1) / depletion-rate
+  ]
+  
+  ; debugging observation info
+  set place-util self-costs
+  set alt-xcor [pxcor] of ideal-site
+  set alt-ycor [pycor] of ideal-site
+  set best-alt-util [tmp-agent-costs] of ideal-site
+  set best-alt-util-util [utility] of ideal-site
+  set self-util orig-util
+  
+  ; we really decide to move, let's record this situation
+  ; Also we move, if it confugured, that unit should move for exogenous reasons after 
+  ; force-move-after moves OR (force-move-after > 0 AND force-move-after < notmoved)
+  ; random utility hear
+  ; 
+  let random-util-rate ((random 100) - 100) / 100
+  ; let's make randomness significant to rate "random-move %" of original
+  ; @todo rewrite this
+  set random-util-rate random-util-rate * best-alt-util * random-move / 100
+  
+  ifelse ( (best-alt-util + random-util-rate < self-costs) ) AND is-patch? ideal-site [   
+    move-to ideal-site
+    set moves moves + 1
+    set residential-moves residential-moves + 1
+    set residential-move-length residential-move-length + (patch-size-km * [ distance orig-patch ] of ideal-site)
+    set last-move-length [ distance orig-patch ] of ideal-site * patch-size-km
+    set travelled travelled + last-move-length
+    ; Take next goal to be between last move and this stay
+    set expected-time (notmoved + expected-time) / 2
+    set notmoved 1
+  ]
+  [
+    ;set expected-time expected-time + 1
+    set notmoved notmoved + 1
+  ]
+  
+end
+
+
+; recalculate all patches in vicinity of changd patches
+to recalc-needed
+  
+  let pset patches with [tmp-recalc = 1]
+  
+  let redopatches patch-set [patches in-radius max-residential-move] of pset
+  ask redopatches [
+    calc-utility self  
+  ]
+  
+  ask pset [
+    set tmp-recalc 0
+  ]
+  
+end
+
+; Function to run every tick that triggers events for all patches
+to run-bases
+  
+  recalc-needed
+  
+  ; for patches that can be used for residential mobility - recalculate utility
+  ;let closepatches patch-set [patches in-radius max-residential-move] of bases
+  
+  ;ask closepatches [
+  ;  calc-utility self 
+  ;]
+  
+  ; For every base
+  ask bases [  
+    move self  
+    harvest self
+    ; May need it to avoid all moving together
+    ask patches in-radius 3 [
+      calc-utility self 
+    ]
+   
+  ]
+  
+  recolor-patches
+  
+  highlight-alts
+  
+end

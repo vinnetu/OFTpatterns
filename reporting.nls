@@ -1,0 +1,126 @@
+to calc-nni
+  ; doesn't work with small num of agents anyway
+  if count bases < 5 [
+    stop 
+  ]
+  let min-dsum 0
+  ask bases[
+    let min-dt min-one-of other turtles [distance myself]
+    let min-d distance min-dt
+    set min-dsum min-dsum + min-d
+  ]
+  let mean-distance min-dsum / num-bases
+  set nni mean-distance / (.5 / sqrt (num-bases / ((max-pxcor - min-pxcor) * (max-pycor - min-pycor)) ))
+  ;set-current-plot "Nearest Neighbor Index"
+  ;plot nni
+  
+end
+
+
+  
+  
+; from https://groups.yahoo.com/neo/groups/netlogo-users/conversations/topics/3047
+to calc-morans-I [vartype]
+  
+  ; for measuring morans I
+  
+  let Ybar 0; mean of Y
+  let W 0  ; sum of weights
+  let N 0  ; number of patches
+  let E_I 0; Expected value of I assuming normality and binary weights matrix (based on adjacency)
+  
+  let maxmove ceiling max-logistic-move + 1
+  
+  ; Eliminate edge effect
+  let apatches patches with [pcolor != red 
+    AND pxcor > min-pxcor + maxmove AND pycor > min-pycor + maxmove
+    AND pxcor < max-pxcor - maxmove AND pycor < max-pycor - maxmove]
+  
+  
+  ifelse vartype = "utility" [
+    set Ybar mean [utility] of apatches
+    ask apatches [
+      set zi utility - Ybar
+      ;set pcolor blue
+    ]
+  ]
+  [
+    set Ybar mean [energy - harvested] of apatches
+    ask apatches [set zi energy - harvested - Ybar]
+  ]
+  
+  set N count apatches
+  set E_I (-1) / (N - 1)
+  ; Calculation of zij for all patches
+  ; considerations: King's Case - all neighbors are taken into account (global Moran's I)
+  ; first lag - only neighbors at distance = 1 are considered (adjacency)
+  ; weight = 1 for adjacent neighbors, 0 otherwise
+
+  
+  ask apatches [
+    ask neighbors [if pcolor != red [set wij 1]] ; identifies neighbors within grid, prevents wrapping
+    set zij zi * sum [wij * zi] of neighbors  ; ∑xi * xj = xi * ∑xj where ∑ is over all j
+    set W W + sum [wij] of neighbors
+    ask neighbors [set wij 0]
+  ]
+    
+
+; calculation of global Moran's I
+; I = (number of areas) / (∑∑ wij ) * (∑∑ wij * zi * zj) / (∑ zi^2)
+; in each case the first sum is all i, the second all j, where i ≠ j
+; for a square lattice (NOT a torus), with Moore's neighborhood (8 cells), ∑∑ wij = 12 + 20 * (n - 2) + 8 * (n - 2)^2
+; where n = length of the first dimension (in cells) and is an odd integer.
+
+  ; http://www.diap.polimi.it/~grabino/metodiemodelli/Pointpattern/pointpattern1_en.htm
+  ; http://www.env.duke.edu/landscape/classes/env352/autocorr.pdf
+  let I 0
+  ifelse (sum [zi ^ 2] of apatches ) != 0 [
+    set I ((N / W) * (sum [zij] of apatches ) / (sum [zi ^ 2] of apatches ))
+  ]
+  [
+    set I 1
+    ;print error-message
+  ]
+  
+  ifelse vartype = "utility" [
+    set I-util I
+  ]
+  [
+    set I-resource I
+  ]
+
+end
+
+; from https://groups.yahoo.com/neo/groups/netlogo-users/conversations/topics/3047
+; The following calculates a local I for each cell to identify 'hot spots'.  It is similar to the
+; global calculation above, but not the same.  The sum of local I is approximate to the global I, but can
+; and does deviate from the latter.
+; if local I is > 0 , the surface is positively correlated (large values with large values)
+; if local I is < 0, the surface is negatively correlated (large values with small values)
+
+;to calc-local-I
+;  set Ybar mean [utility] of patches with [pcolor != red]
+;  ask patches with [pcolor != red] [set zi utility - Ybar]
+;  set N count patches with [pcolor != red]
+
+;  without-interruption [
+;    ask patches with [pcolor != red] [
+;      ask neighbors [if pcolor != red [set wij 1]]
+;      set Ii zi * sum [ wij * zi ] of neighbors  / sum [ zi ^ 2 ] of neighbors
+;      set pcolor scale-color green Ii -1 1
+;      ask neighbors [set wij 0]
+;      ]
+;    ]
+;
+;  set mean-local-I sum [Ii] of patches with [ pcolor != red]  / N
+
+;end
+
+to slow-measurements
+  if ticks mod 10 = 0 [
+    calc-morans-I "utility"
+    calc-morans-I "resources"
+  ]
+  
+end
+

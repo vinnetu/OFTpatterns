@@ -1,0 +1,133 @@
+patches-own [
+  ; resource configuration - @todo maybe remove
+  resource-type
+  resource-active
+  
+  ; energy rate that given patch outputs at max measured in (energy for person kcal / human workday)
+  energy
+  ; energy rate depletion in units of energy (prev)
+  harvested
+  ; Helper variable, which contains: active - energy  (person req kcal / human workday)
+  active-energy
+  
+  ; maximum utility value of a patch showing the summed energy it can access from close patches
+  ; defined by max-logistic-move 
+  max-utility ; (person req kcal / human workday) utility when not harvested
+  
+  ; utility at given moment given the harvested energy rates and @todo possibly seasonality
+  utility ; (person req kcal / human workday) base-utility * seasonality
+  
+  ; temporary variable showing requirements to be recalculated
+  tmp-recalc
+  
+  ; temporary variable showing depletion here meaning vicinity should be recalculated
+  ; tmp-wasdepleted
+  ; temp variable for agent move costs calculations
+  tmp-agent-costs
+  
+  ; temp variables required for Morans I calculation
+  difference
+  wij ; local weights
+  zi ; Y - Ybar
+  zij ; sum from zi * zi(8 neighbors)
+  Ii
+]
+
+to setup-patches
+  ask patches [
+    ;set height (random 100) ; for landscape generation
+    set energy (random-normal mean-energy-rate std-energy) ; energy rate
+    set resource-type (random num-resources)
+    set harvested 0
+    set active-energy energy
+  ]
+  ;smooth the dataset as required
+  repeat smoothness [ diffuse energy 0.2 ]
+  ;repeat tp-smoothness [ diffuse resource-type 1 ]
+  
+  ask patches [
+    ; We have a minimum set, it doesn't get below this
+    if (energy < resource-thresh) [
+      set energy 0
+    ]
+    ; minimum also implies maximum for balaneced environment with cutoff value at 
+    ; 2 * mean-energy-rate + resource-thresh
+    if (energy > 2 * mean-energy-rate + resource-thresh) [
+      set energy 2 * mean-energy-rate
+    ]
+    set resource-type floor resource-type 
+  ]
+  
+  ; normalize the resulting landscape to the mean energy value required by configuration
+  ; get relation from wanted mean to real one 
+  let a mean-energy-rate / mean [energy] of patches
+  
+  ask patches [
+    set energy energy * a
+    set active-energy energy
+  ]
+  
+  ask patches [
+    calc-max-utility self
+  ]
+  
+end
+
+to setup-null-patches
+  ask patches [
+    set energy (mean-energy-rate) ; productivity
+    set resource-type 1 ;(random num-resources)
+    set harvested 0
+    set active-energy energy
+  ]  
+  ask patches [
+    calc-max-utility self
+  ]
+  
+end
+
+  
+; Calculate max utility of the location given by summed energy-rate of accessible patches
+; Utility is energy rate hreq kCal / DAY 
+
+to calc-max-utility [me-patch]
+  
+  set max-logistic-move min list (forage-speed * 3.9) max-logistic-move
+  let vicinity patches in-radius (max-logistic-move) with [ self != me-patch ]
+  
+  set max-utility floor sum [energy * (8 - ((distance me-patch * patch-size-km * 2) / forage-speed) ) / 8] of vicinity
+  set utility max-utility 
+end
+
+to calc-utility [me-patch]
+  ; Utility of a location is the summed energy rates of given place and all accessible places, the rates are calculated taken into account the
+  ; the distance and transportation on humanrequirement kCal/humanday, we assume foragers are moving to forage for a 8h human workday,
+  ; energy rate already includes all local harvesting costs 
+  ; we also assume that foragers move 3km/h, so the daily rate is usually 8*hourlyrate then it now is (8-(distance/speed))*hourlyrate 
+  ; set max-utility sum [max list ((active-energy) - (distance-multiplier * (distance me-patch)) ) 0 ] of vicinity
+  
+  let vicinity 0
+  
+  ask me-patch[
+   set vicinity patches in-radius (max-logistic-move) with [ self != me-patch ]
+  ]
+  set utility floor sum [active-energy * (8 - (2 * distance me-patch * patch-size-km / forage-speed) ) / 8] of vicinity
+end
+
+; Calculate reduced utility by harvested patches
+;to calc-rev-utility [me-patch]
+  
+;  set max-logistic-move max list (forage-speed * 4) max-logistic-move
+;  let vicinity patches in-radius max-logistic-move with [ harvested > 0 ]
+  
+;  set utility (max-utility - sum [active-energy * (8 - (2 * distance me-patch * patch-size-km / forage-speed) ) / 8] of vicinity)
+;end
+
+to highlight-alts
+  ask bases [
+    ask patch alt-xcor alt-ycor
+    [
+     set pcolor blue 
+    ]
+  ]
+end
