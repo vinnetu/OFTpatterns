@@ -1,3 +1,13 @@
+; Copyright (c) 2018-20 Kaarel Sikk, C²DH, University of Luxembourg
+; Licensed under the Creative Commons
+; Attribution-NonCommercial-ShareAlike 4.0 License
+; See Info tab for full copyright and license information
+;
+; Setup and functions of resources related functions
+
+; Resource regrowth on all patches
+; Is not based on any empirical studies
+; in the future it could make sense to make it seasonal
 to regrow-harvest
   ; during growth season grow back
   let regrow-patches patches with [harvested > 0]
@@ -11,16 +21,12 @@ to regrow-harvest
     
     set tmp-recalc 1
     
-    
-    
   ]
   
 end
 
-
+; Agent harvests surrounding areas
 to harvest [a]
-  ;print "Agent harvesting"
-  ;print who
   ; energy rate for period of a tick - 
   ; toharvest - how much energy must be harvested during this tick
   let toharvest population * energy-per-person
@@ -28,34 +34,32 @@ to harvest [a]
   ; Extract energy from closest patches to the agent a until all energy is gained
   let c-patch ([patch-here] of a)
   let vicinity patches in-radius (max-logistic-move)
-  ;let distance-multi 2 * days-per-tick / forage-speed
+  
   let moved 0
+  let dist 0
   while [toharvest > 0]
   [
     
-    ;let vicinity vicinity-gen with [ harvested < energy ] ;AND self != c-patch ]
-    ;closest first
-    ;let target-patch min-one-of (patches in-radius max-logistic-move with [harvested < energy]) [distance a]
-    
-    ; best return first
-    
-    ;let target-patch max-one-of vicinity [((active-energy) * 8 / (8 + ((distance a * patch-size-km) * distance-multi ) ) )]
     let target-patch max-one-of vicinity [active-energy * (8 - (2 * distance a * patch-size-km / forage-speed) ) / 8]
     
     ifelse target-patch = nobody [
       print "Died of no resources"
+      set toharvest 0
       die
     ]
     [
+      
       ; BY all patches harvest resources
       ask target-patch [
         ; time moved - we assume that resources keep for a tick time, so there is only one logistic foray (not eg. every day) made to every other cell
         ; for simplification (summed foraging costs, not individual)
+        set dist distance a
         set moved moved + distance a
         if active-energy < 0.01 [
           print "Died of no resources"
           set toharvest 0
           ask a [ die ]
+          stop
         ]
         
         ; let's see when we try to get all here
@@ -79,6 +83,11 @@ to harvest [a]
         ]
         set active-energy (energy - harvested)
         set tmp-recalc 1
+        ask a [
+          if notmoved = 1 OR dist > last-foraging-radius [
+            set tmp-foraging-radius dist
+          ]
+        ]
       ]
     ] 
   ]

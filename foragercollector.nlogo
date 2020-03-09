@@ -1,8 +1,9 @@
-; @Todo copyright
+; Copyright (c) 2018-20 Kaarel Sikk, C²DH, University of Luxembourg
+; Licensed under the Creative Commons
+; Attribution-NonCommercial-ShareAlike 3.0 License
+; See Info tab for full copyright and license information
 ;
-;
-
-extensions [profiler]
+; Main model file
 
 __includes[
   ; all operations on setting landscape
@@ -22,9 +23,11 @@ globals [
   ; Energy / resource related configuration
 
   ; How much energy a human requires per day
-  ; For estimates we can refer to empirical data from Kelly 2013, p 99 14000 KCal/family day
+  ; For estimates we can refer to empirical data from Kelly (2013, p 99)
+  ; 14000 KCal/family day
   ; In stylized model the unit is energy per person per day, so default = 1
-  ; a discussion o how much energy person requires for a week https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5094510/
+  ; For a discussion on how much energy person requires for a week see:
+  ; Hamilton et al 2016 [https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5094510/]
   energy-per-person
 
   ; Minimum utility value, base has to move, if it's so low already
@@ -44,23 +47,25 @@ globals [
 
   ; rate (times energy on the spot) of how fast a harvested patch is being depleted in a tick
   ; must be recalculated if changing days-per-tick
-  ;depletion-rate
+  ; depletion-rate
 
-  move-time-anticip ; when planning residential move, how long shall we think ahead?
+  ; when planning residential move, how long shall we think ahead?
+  move-time-anticip
 
   ; As resource regrowth takes lot of computing power we do it after nr of ticks
   regrow-after-ticks
 
-  ; Variables related to seasonality and different resources, maybe exclude
+  ; Variables related to seasonality and different resources, RESERVED VARIABLES, NOT USED CURRENTLY
   num-resources ; diversity of resources
   growing-season ; length of resource availability in weeks
   tp-smoothness ; smoothness of placement of resources
 
   min-usable-utility ;if utility is below this threshold the  place is scrapped
 
-  ; @Todo - a multiplier defining the costs of residential moves per km per person
+  ; A multiplier defining the costs of residential moves per km per person
   ; for logistical mobility that is going to be weighted against utility
   ;distance-multiplier
+
   ; a cost of residential move for weighting against utility
   ; while weighting will be multiplied by population
   ;move-start-cost
@@ -76,7 +81,8 @@ globals [
   ; Maximum residential move, how far can a new base camp be?
   ; max-residential-move
 
-  ; Time recording variables and measurements
+  ; Variables collected for reporting
+
   current-week ; 1-52
   current-year ; X
   nni ; nearest neighbor index - measure of clustering
@@ -102,11 +108,13 @@ globals [
   report-mean-exptime
   report-mean-logmobturn
   report-mean-moves
+  report-mean-fradius
   report-std-energy
   report-std-movelen
   report-std-exptime
   report-std-logmobturn
   report-std-moves
+  report-std-fradius
 
   std-energy
 ]
@@ -118,6 +126,7 @@ to setup-vars
     random-seed the-random-seed
     set run-seed the-random-seed
   ]
+  ; set seed
   [
     set run-seed new-seed
     random-seed run-seed
@@ -127,10 +136,6 @@ to setup-vars
   set mean-energy-rate mean-energy-rate-km * (patch-size-km ^ 2)
 
   set std-energy mean-energy-rate * std-energy-rate
-
-  ; @todo - maybe remove
-  ;set tp-smoothness 20
-  ;set num-resources 10
 
   ; movement utility penalty
   ; set distance-multiplier distance-multiplier * patch-size-km
@@ -168,7 +173,7 @@ to setup-vars
   set regrow-after-ticks 4
 
   ;this is minimum utility to survive at the pace for a tick to avoid div by zero
-  set min-usable-utility base-population * (1 / (depletion-rate + 0.00001))
+  set min-usable-utility 0.00000001 ;base-population * (1 / (depletion-rate + 0.00001))
 
   set debug 0
 
@@ -178,6 +183,7 @@ to setup-vars
 
 end
 
+; Show different UI maps for different variables
 to recolor-patches
 
   if coloring = "resources" [
@@ -192,11 +198,17 @@ to recolor-patches
       set pcolor scale-color green utility 0 max-utility-rate
     ]
   ]
+  if coloring = "debug-costs" [
+    let max-agent-cost (max [tmp-agent-costs] of patches) + 10
+    set max-agent-cost 20
+    ask patches [
+      set pcolor scale-color blue tmp-agent-costs 0 max-agent-cost
+    ]
+  ]
 end
 
 
-
-
+; setup model to run
 to setup
   reset-ticks
   setup-vars
@@ -210,11 +222,12 @@ to setup
   calc-morans-I "resources"
   set I-util-init I-util
   set I-resource-init I-resource
-  print "Mean energy rate:"
-  print mean [energy] of patches
+  dout "Mean energy rate:"
+  dout mean [energy] of patches
 
 end
 
+;setup model to run with uniform environment
 to setup-null
   reset-ticks
   setup-vars
@@ -229,44 +242,58 @@ to setup-null
   calc-morans-I "resources"
   set I-util-init I-util
   set I-resource-init I-resource
-  print "Mean energy rate:"
-  print mean [energy] of patches
+  dout "Mean energy rate:"
 
+  dout mean [energy] of patches
 end
 
+; run step of a model
 to go
   set residential-moves 0
   set residential-move-length 0
-
+  ; agents move
   run-bases
 
   tick
-
+  ;environment regrowth
   if ticks mod regrow-after-ticks = 0 [
     regrow-harvest
   ]
-
+  ; measure
   slow-measurements
 
   calc-nni
 
-  set report-mean-energy mean [energy - harvested] of patches
-  set report-mean-movelen mean [last-move-length] of bases
-  set report-mean-exptime mean [expected-time] of bases
-  set report-mean-logmobturn mean [log-mobility-turn] of bases
-  set report-mean-moves mean [moves] of bases * (365 / days-per-tick)/ ticks
+  set report-mean-fradius 0
+  set report-std-fradius 0
 
-  set report-std-energy mean [energy - harvested] of patches
-  set report-std-movelen mean [last-move-length] of bases
-  set report-std-exptime mean [expected-time] of bases
-  set report-std-logmobturn mean [log-mobility-turn] of bases
-  set report-std-moves mean [moves] of bases * (365 / days-per-tick)/ ticks
+  let movedbases bases with [moves > 0]
 
+  let foraged bases with [last-foraging-radius > 0]
+
+  ;start recording after at least two bases have moved
+  if (any? movedbases AND count movedbases > 2) [
+    set report-mean-movelen mean [travelled / moves] of bases with [moves > 0]
+    set report-std-movelen standard-deviation [travelled / moves] of bases with [moves > 0]
+    set report-mean-energy mean [energy - harvested] of patches
+    set report-mean-exptime mean [expected-time] of bases
+    set report-mean-logmobturn mean [log-mobility-turn] of bases
+    set report-mean-moves mean [moves] of bases * (365 / days-per-tick)/ ticks
+    set report-std-energy standard-deviation [energy - harvested] of patches
+    set report-std-exptime standard-deviation [expected-time] of bases
+    set report-std-logmobturn standard-deviation [log-mobility-turn] of bases
+    set report-std-moves standard-deviation [moves] of bases * (365 / days-per-tick)/ ticks
+  ]
+
+  if (any? foraged AND count foraged > 2) [
+    set report-mean-fradius mean [last-foraging-radius] of bases with [last-foraging-radius > 0 ]
+    set report-std-fradius standard-deviation [last-foraging-radius] of bases with [last-foraging-radius > 0 ]
+  ]
 
 end
 
 
-; debug function to print debig information to output
+; debug function to print debug information to output
 to dout [msg]
   if debug = 1 [
    print msg
@@ -320,11 +347,11 @@ NIL
 CHOOSER
 77
 118
-170
+216
 163
 coloring
 coloring
-"utility" "resources" "none"
+"utility" "resources" "debug-costs" "none"
 1
 
 BUTTON
@@ -361,23 +388,6 @@ NIL
 NIL
 1
 
-BUTTON
-247
-196
-342
-229
-Profile go
-;setup                  ;; set up the model\nprofiler:start         ;; start profiling\nrepeat 10 [ go ]       ;; run something you want to measure\nprofiler:stop          ;; stop profiling\nprint profiler:report  ;; view the results\nprofiler:reset         ;; clear the data\n
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
 SLIDER
 -1
 32
@@ -387,7 +397,7 @@ num-bases
 num-bases
 1
 100
-1.0
+5.0
 1
 1
 NIL
@@ -402,7 +412,7 @@ smoothness
 smoothness
 0
 100
-76.0
+10.0
 1
 1
 NIL
@@ -417,7 +427,7 @@ resource-thresh
 resource-thresh
 0
 25
-0.0
+0.5
 0.1
 1
 NIL
@@ -481,7 +491,7 @@ mean-energy-rate-km
 mean-energy-rate-km
 0.1
 5
-1.01
+0.91
 .01
 1
 NIL
@@ -496,7 +506,7 @@ std-energy-rate
 std-energy-rate
 0
 10
-6.1
+1.1
 .1
 1
 NIL
@@ -650,7 +660,7 @@ move-start-cost
 move-start-cost
 0
 200
-7.2
+10.0
 .2
 1
 hrs
@@ -835,7 +845,7 @@ depletion-rate
 depletion-rate
 0
 1
-0.5
+0.66
 0.01
 1
 NIL
@@ -846,166 +856,132 @@ SLIDER
 265
 343
 298
-random-move
-random-move
+move-before
+move-before
 0
-100
-16.0
 1
+0.0
+0.05
 1
 NIL
 HORIZONTAL
 
+MONITOR
+1212
+10
+1356
+55
+NIL
+report-mean-energy
+17
+1
+11
+
+MONITOR
+1212
+54
+1355
+99
+NIL
+report-mean-movelen
+17
+1
+11
+
+MONITOR
+1211
+398
+1362
+443
+NIL
+report-mean-exptime
+17
+1
+11
+
+MONITOR
+1211
+99
+1355
+144
+NIL
+report-mean-logmobturn
+17
+1
+11
+
+MONITOR
+1211
+308
+1354
+353
+NIL
+report-mean-moves
+17
+1
+11
+
+MONITOR
+1211
+353
+1357
+398
+NIL
+report-mean-fradius
+17
+1
+11
+
 @#$#@#$#@
-## Todo
+## WHAT IS IT?
 
-* **marginal value theorem** when it is time to move!
-* Utility - return rate - change the logic. Return rate decreases, add return rate threshold. Energy amount - kcal / per person, depletion rate
+An Agent Based Model of hunter-gatherer settlement patterns generally based on Central Place Foraging (CPF) model of Kelly (2013).
 
-* How to generlize depletion of patches? Linear gain curve falls below alternatives. Linear funtions (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5373393/)
+The model is based a spatially explicit implementation of Kelly's CPF model. Unlike other CPF models, which simulate actions of individual foragers, the agent in current model is a hunter-gatherer camp that moves around on the landscape. The individual forager actions are thus reduced from the model for simplification.
 
-* Landscape creation - make sliders make sense, the amount of energy will remin same with one slider. Write normalization procedures
-* Measure morans I
-* Moves per year -> moves last year, mõõdan siin täiesti vale asja, tulemus on keskmine koguaeg, peab ikka jooksvat hetke mõõtma...
-* Construct an utility value based on Kelly / Binford
-* Assumption of Storage
-* Satisficer / maximizer. Minimizing effort
-* Comparing energy with time, not good
-* Calibrate - null model assumption are Kelly's results
-* Risk management createsconstructed affordances, which make moving more costly.
+The goal of the model is to provide a framework to explore connect decision theories to hunter-gatherer settlement pattern formation. 
 
-### Questions
+
+The settlement patterns are formed as a results of agent choices of mobility and that of settlement location, which have essentially different causes. With the model framework it is possible to test theories of those decision processes and explore their results on settlement pattern scale. 
+
+The framework is developed for use as a baseline model for experimenting research questions with explicit empirical case studies. Among those are testing formalised hypothesis and identifying emergent properties 
+
+The goal of the CPF implementation is explore to the possibilities of explaining settlement choice by optimal foraging theory. 
+
+The spatially explicit implementation of the CPF model includes several new mechanisms:
+
++ stochastic environment generation
+
++ choice model between alternative locations
+
++ resources harvesting and environment depletion process
+
++ multiple agents competing for the resources
+
+
+### Possible questions
 
 We explore can we explain relation between environmental features and rate of residential and logistic mobility by agent based settlement choice model.
 
-Isolate the effect of environmental distribution of energy
+Possible questions with the model are 
 
-Sisu - article
++ exploring mobility models
 
-methods - overview of collector-forager continuum and second - 
++ exploring settlement location choice models 
 
-agent based modelling in settlement chouce and archaeology
++ energy distribution in the environment and its effect to settlement pattern formation
 
-* TODO: increased logistical range (and thus longer-term planning) creates a more smooth utility space and this increase in agglomeration. Phase space, when the level of change is actually significant.
++ dynamic environments, seasonality
 
-
-* Null model and central forager theory
-* Impact of different resource densities
-* Impact of different spatial confiurations (roughness, patchiness)
-* Utility space is anyway smoothed by notion of access
-* Seasonality of resources
-* Cost of movement - storage and housing
-
-* Continuation - critical resources water and wood
-* Seasonality
++ movement costs and technology; site investment
 
 
+The goal of the experiments by Sikk and Caruso (2019) are: 
 
-## WHAT IS IT?
++ test the robustness of Kelly's CPF model to initial spatial configuration of resource deistribution
 
-Goal: explore the possibilities of explaining settlement choice by optimal foraging theory. 
-Goal: ask - in case of settlement choice by OFT, how does the distribution of resources on the landscape influence OFT strategies. 
++ evaluate its theoretical explanatory power of settlement pattern formation processes
 
-Explore the question with agent based models
-
-
-(a general understanding of what the model is trying to show or explain)
-
-in reality not all of energy is harvested, sos we are approximating not total energy but the energy of harvest.
-
-Model is calibrate for group and we check te changes. And compare them to general data.
-They have a lot of influence, but correlation.
-
-### Central HG concepts to test
-
-All this from Kelly 1992
-
-
-Binford (17) began to unpack the concept of mobility by differentiating
-between **residential mobility**, movements of the entire band or local group
-from one camp to another, and **logistical mobility**, foraging movements of
-individuals or small task groups out from and back to the **residential camp**.
-
-Binford used these descriptions to categorize two ideal hunter-gatherer settle-
-ment systems. **Collectors** move residentially to key locations (e.g. water
-sources) and use long logistical forays to bring resources to camp. **Foragers**
-"map onto" a region’s resource locations. In general, foragers do not store
-food; they make frequent residential moves and short logistical forays. Collec-
-tors store food; they make infrequent residential moves but long logistical
-forays.
-
-The key difference of those strategies are moving resources to consumers not vice versa.
-So we have here 2 dimensions - influence of placement of sources and seasonality to
-different envirnonents. And use of storage.
-
-From Kelly (1992) there is a description of Binford types of mobility which form a certain continuum. Forager mobility with a lot of residential moves and less logistical activity. While foragers use long logistic forays and ave more fixed base camps.
-Binford added also another dimension of mobility: territorial or long-term mobility, which is either considered to be a conervation measure or responce to subsistence stress.
-
-Kelly has two examples of foragers with very different residential moves rate, but only
-because of resource densities they use. So 
-
-Bettinger & Baurnhoff (15, 14:100-3) offer an alternative to Binford’s
-forager-collector scheme. Their model proposes a continuum from **travelers**,
-who have high mobility (presumably residential and logistical) and take only
-high-return-rate food resources, especially large game, to **processors**, who are
-less mobile and use intensively a diversity of resources, especially plant foods.
- 
-Foraging strategies is most important, because when foragers stay they face diminishing returns (Sahlins, M. D. 1972. StoneAge Economics. Chicago: Aldine; p 33)
-
-Many ethnographic cases demonstrate that foragers
-move not when all food has been consumed within reach of camp but when
-daily returns decline to an unacceptable level (72). Although the Tanzanian
-Hadza, for example, can forage for roots up to 8 km from camp, they generally
-do not go beyond 5 km, preferring instead to move camp (160).
-
-**Agents** We should point out that foragers do not always move as a group; forager
-social units, in fact, can have an extremely fluid composition. Relieving social
-tension is a reason often given lbr this fluidity, and subsistence can often be a
-source of this tension (Kelly 1992: 47).
-
-**How do decide on movement?**
-from: (Kelly 1992: 47).
-At the heart of the relationship between daily foraging and group movement
-is perceived "costs" of camp movement
-and foraging. While it is **unclear what period (e.g. per hour, day, or week) should be used in assessing** the cost and benefits of moving and foraging, we still might predict that as the cost of camp movement increases relative to the benefit of foraging in a new location, foragers will remain longer in the current camp (92).
-
-As resource return rates decline, foragers reach the point of
-diminishing returns at shorter and shorter distances and must move more
-frequently. Likewise, if a resource appearing elsewhere provides higher return
-rates than current foraging provides, the forager may also elect to move. (This,
-rather than "affluence," probably explains why foragers pass up some re-
-sources; see 70.) Another variable is the "cost" of moving, determined not
-only by the distance to the next camp but also by what must be moved (e.g.
-housing material), the terrain to be covered (e.g. mountains versus prairie),
-availability of transport technology (such as dogsleds or horses) to move
-housing, food, and/or people. If food has been stored, then the cost of moving
-it must be balanced against the next camp’s anticipated resources. Models
-predicting how far resources can be transported (87, 128) show that a re-
-source’s return rate does not necessarily predict how far that resource can be
-carried.
-
-What Kelly basically said here is the core of the model:
-return rate of current place, if diminishing returns, then move which has to be weighted against the moe cost with next canps anitcipated resources.
-
-he variables that affect foraging are also
-relevant to horticulture, for both can be evaluated in terms of time, returns,
-cost, and risk
-	
-We also have to introduce a minimum treshold rate. 
-
-We don't include unsknown or risk into our model. No sex / other social labour divisions 
-discussed here.
-
-Quatify collecting strategy somehow?
-
-**simulation study by kelly** Kelly, R. L. 1990. Marshes and mobility in
-the western Great Basin. In Wetlands Ad-
-aptations in the Great Basin. Museum of
-Peoples and Cultures Occasional Papers,
-ed. J. C. Janetski, D. B. Madsen, 1:259-76.
-Provo: Brigham Young Univ.
-
-Because of no data on gain curves and diminishing returns we are using a stylized model to isolate the effect of environment.
 
 ## HOW IT WORKS
 
@@ -1016,203 +992,50 @@ Because of no data on gain curves and diminishing returns we are using a stylize
 2. Generate utility space that is quantifies to access to resources 
 every adjacent patchs until (max) adds existing resources value to space / divided by it's distance from potential home. (maybe should structure differently).
 
-The utility is expected energy transition rate for different periods of time.
 
-Let's do without seasonality. Week, 2 week, 4 weeks, 8 weeks, 16 weeks, 32 weeks.
-
-Time for getting sufficient resources for pop of X during a period of time.
-
-Should be simple equation from Kelly (2015).  
-
-3. Optimize, search for best places (200), that might be interesting during the game.
 
 ### Every tick
 
 1. Restore consumed resources
 
-2. 
+2. Every agent
 
-X. compare current acquisition rate to promise of the new location + moving costs there
+    2.1. Calculate utility at current place. 
 
-X. take level of optimization from previous experience - mean of all previous time-span choices
+    2.2. Compare current acquisition rate to the promise of the best alternative location - moving costs. If the alternative is better - move
 
-### Every agent every tick
+    2.3. Harvest resources
 
-Calculate utility at current place. 
+    2.3. If moved, change your expectations for normal length of a stay - decide it to be the mean of the last two stays.
 
-There are different evaluations regarding the expected length of stay. 
-Selects the expected length, but adjusts it by previous experience.
 
-Search whole map for utility, where utility > current place + moving costs.
-We measure the ease of access to resources given time period selected (nr of weeks from
-1-52)
+## REFERENCES
 
-The real leave time is changing the strategy for the next turn.
 
-Ease of access to required amount of energy for given period of time.
-(in case there will be no energy in the future? Calculate maps for all months)
++ Kelly, R.L., 1992. Mobility/Sedentism: Concepts, Archaeological Measures, and Effects. Annual Review of Anthropology 21, 43–66. https://doi.org/10.1146/annurev.an.21.100192.000355
 
-if new place is better than current expected stay
++ Kelly, R.L., 2013. The lifeways of hunter-gatherers: the foraging spectrum. Cambridge University Press.
 
-### Calculation of the utility value
++ Hamilton, M.J., Lobo, J., Rupley, E., Youn, H. and West, G.B., 2016. The ecological and evolutionary energetics of hunter‐gatherer residential mobility. Evolutionary Anthropology: Issues, News, and Reviews, 25(3), pp.124-132.
 
-Kelly had a specific formula from calculating a return rate from biomass.
++ Venkataraman, V.V., Kraft, T.S., Dominy, N.J. and Endicott, K.M., 2017. Hunter-gatherer residential mobility and the marginal value of rainforest patches. Proceedings of the National academy of Sciences, 114(12), pp.3097-3102.
 
 
+## HOW TO CITE
 
-###
-Results just scaling - system works slower and resources can regenerate before move is required. Sedantism.
+If you mention this model in a publication, or use  please include these citations for the model itself and for NetLogo  
 
++  Sikk, K. and Caruso G. 2019. Spatially explicit ABM of Central Place Foraging Theory and its explanatory power for hunter-gatherers settlement patterns formation processes. Adaptive Behaviour 2019
 
++  Wilensky, U. 1999. NetLogo. http://ccl.northwestern.edu/netlogo/. Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.  
 
-## HOW TO USE IT
+## COPYRIGHT AND LICENSE
 
-(how to use the model, including a description of each of the items in the Interface tab)
+Copyright 2018-2020 Kaarel Sikk, C2DH, University of Luxembourg
 
-## THINGS TO NOTICE
+![CC BY-NC-SA 4.0](http://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png)
 
-(suggested things for the user to notice while running the model)
-
-## THINGS TO TRY
-
-(suggested things for the user to try to do (move sliders, switches, etc.) with the model)
-
-## EXTENDING THE MODEL
-
-(suggested things to add or change in the Code tab to make the model more complicated, detailed, accurate, etc.)
-
-## NETLOGO FEATURES
-
-(interesting or unusual features of NetLogo that the model uses, particularly in the Code tab; or where workarounds were needed for missing features)
-
-## RELATED MODELS
-
-(models in the NetLogo Models Library and elsewhere which are of related interest)
-
-## CREDITS AND REFERENCES
-
-(a reference to the model's URL on the web if it has one, as well as any other necessary credits, citations, and links)
-
-## WORK LIST
-
-* Expectations of stay length and settlement choice. This should be dynamic.
-Next one will be on previous experience. No need to move.
-Change strategy for longer location.
-
-
-**Settlement choice**
-
-Costs of logistical mobility vs residential mobility
-Costs of storage - site investment ("home effect")
-
-Create simulated resource spaces utility values considering different 
-anticipations
-
-If anticipated for next month and 6 months similar and sufficient, no need for storage.
-
-3 different resource types.
-
-Resource dynamics - plants, hunting, aquatic
-
-Season availability
-Costs of harvesting ji
-
-* resource depletion, models of how it works
-https://www.sciencedirect.com/science/article/pii/0278416588900013
-
-
-
-* move before resource depletion:
-http://www.pnas.org/content/early/2017/03/01/1617542114
-
-* scope - areas of hunter-gatherer groups
-
-* design stuff
-http://www.cs.us.es/~fsancho/?e=137
-
-* Overview of base concepts
-https://www.unl.edu/rhames/courses/for97notes.htm
-http://users.clas.ufl.edu/sassaman/pages/classes/ant6930/ANG6930-6.htm
-http://homes.chass.utoronto.ca/~coupland/ANT310/lectures/HGtheory.htm
-
-* Tallavaara implementation
-https://zenodo.org/record/1167852#.XAD5B8tKhFQ
-http://www.pnas.org/content/pnas/115/6/1232.full.pdf
-
-## Concepts
-
-### Net acquisition rate (productivity)
-https://www.sciencedirect.com/science/article/pii/0278416588900013
-
-### Carrying capacity
-
-### Harvest and depletion, which effect has it on NAR
-
-### Gain curves & depletion of resources
-
-https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5373393/
-cumulative resource acquisition through time
-
-Currently there are is only one study done on them showing that the gain functions have a huge variety, so we generalize the gain function while isolating distribution effect,
-but it must be generalized and the impact of different gain functions must be tested.
-
-### Why stylized model?
-
-Gain curves and diminishing returns have been difficult to quantify. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5373393/
-
-
-
-### Environmental average return rate
-Optimal foraging, the marginal value theorem.
-Charnov EL
-Theor Popul Biol. 1976 Apr; 9(2):129-36.
-
-
-
-
-## Some data estimates collected by Binford
-
-**tlpop**. Total number of persons to whom the ethnographic description applies; (Table:5.01); (Binford 2001:117)
-mean 1697.854	min 23	max 14582	sd 2356.97
-
-**area**. Ethnographers' estimate of total land area occupied by the group (100 sqkm); (Table: 5.01); (Binford 2001:117)
-mean 388.75	min 0.8	max 6600	sd 832.748
- 
-**density**. Population density (==tlpop/area); (Table: 5.01); (Binford 2001:117)
-mean 24.586	min 0.25	max 308.7	sd 36.085
- 
-**group1**. Size of smallest group that regularly cooperates for subsistence; smallest self-sufficient group; (Table: 5.01 & 8.01); (Binford 2001:117)
-mean 17.525	min 5.6	max	70	sd	9.76
- 
-**group2**. The mean size of the consumer group that regularly camps together during the most aggregated phase of the yearly economic cycles; (Table: 5.01 & 8.01); (Binford 2001:117)
-mean	74.908	min	19.5	max	650	sd	85.42
- 
-**group3**. The mean size of multigroup encampments that may aggregate periodically, but not necessarily annually, for immediate subsistence-related activities; (Table: 5.01 & 8.01); (Binford 2001:117)
-mean	209.342	min	42	max	1500	sd	182.688
-
-## Literature
-
-* Kelly, R.L., 1992. Mobility/Sedentism: Concepts, Archaeological Measures, and Effects. Annual Review of Anthropology 21, 43–66. https://doi.org/10.1146/annurev.an.21.100192.000355
-
-### TODO
-
-Just map all data we have in human settlement patterns
-
-### Parameter calibration
-
-
-Model: All energy of environment; mean energy per square; max energy per square;
-
-Reality: 
-
-
-## Idee
-
-Critical resources replaced by constructed resources / affordances
-
-
-
- 
+This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 License.  To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-sa/4.0/ or send a letter to Creative Commons, 559 Nathan Abbott Way, Stanford, California 94305, USA.
 @#$#@#$#@
 default
 true
@@ -1519,7 +1342,7 @@ false
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.0.4
+NetLogo 6.1.0
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
@@ -1761,23 +1584,29 @@ reset-ticks</setup>
     <setup>setup
 reset-ticks</setup>
     <go>go</go>
+    <final>behaviorspace-run-number</final>
     <timeLimit steps="78"/>
     <metric>word run-seed</metric>
     <metric>std-energy</metric>
+    <metric>mean-energy-rate-km</metric>
     <metric>residential-moves</metric>
     <metric>I-resource-init</metric>
     <metric>I-util-init</metric>
+    <metric>I-util</metric>
+    <metric>I-resource</metric>
     <metric>nni</metric>
     <metric>report-mean-energy</metric>
     <metric>report-mean-movelen</metric>
     <metric>report-mean-exptime</metric>
     <metric>report-mean-logmobturn</metric>
     <metric>report-mean-moves</metric>
+    <metric>report-mean-fradius</metric>
     <metric>report-std-energy</metric>
     <metric>report-std-movelen</metric>
     <metric>report-std-exptime</metric>
     <metric>report-std-logmobturn</metric>
     <metric>report-std-moves</metric>
+    <metric>report-std-fradius</metric>
     <enumeratedValueSet variable="num-bases">
       <value value="10"/>
     </enumeratedValueSet>
@@ -1801,9 +1630,11 @@ reset-ticks</setup>
       <value value="40"/>
       <value value="60"/>
     </enumeratedValueSet>
-    <steppedValueSet variable="std-energy" first="0" step="1" last="4"/>
+    <enumeratedValueSet variable="std-energy">
+      <value value="5"/>
+    </enumeratedValueSet>
     <enumeratedValueSet variable="resource-thresh">
-      <value value="0"/>
+      <value value="0.5"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="patch-size-km">
       <value value="1"/>
@@ -1824,7 +1655,295 @@ reset-ticks</setup>
     <enumeratedValueSet variable="depletion-rate">
       <value value="0.66"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="random-move">
+    <steppedValueSet variable="move-before" first="0" step="20" last="100"/>
+  </experiment>
+  <experiment name="e5nni" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
+    <setup>setup
+reset-ticks</setup>
+    <go>go</go>
+    <final>print behaviorspace-run-number</final>
+    <timeLimit steps="78"/>
+    <metric>word run-seed</metric>
+    <metric>std-energy</metric>
+    <metric>mean-energy-rate-km</metric>
+    <metric>residential-moves</metric>
+    <metric>I-resource-init</metric>
+    <metric>I-util-init</metric>
+    <metric>I-util</metric>
+    <metric>I-resource</metric>
+    <metric>nni</metric>
+    <metric>report-mean-energy</metric>
+    <metric>report-mean-movelen</metric>
+    <metric>report-mean-exptime</metric>
+    <metric>report-mean-logmobturn</metric>
+    <metric>report-mean-moves</metric>
+    <metric>report-mean-fradius</metric>
+    <metric>report-std-energy</metric>
+    <metric>report-std-movelen</metric>
+    <metric>report-std-exptime</metric>
+    <metric>report-std-logmobturn</metric>
+    <metric>report-std-moves</metric>
+    <metric>report-std-fradius</metric>
+    <enumeratedValueSet variable="num-bases">
+      <value value="30"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="base-population">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="coloring">
+      <value value="&quot;resources&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="the-random-seed">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="std-energy">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-thresh">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="patch-size-km">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="mean-energy-rate-km">
+      <value value="1.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-logistic-move">
+      <value value="12"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-residential-move">
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="recover-in-nyear">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="move-start-cost" first="0" step="4" last="100"/>
+    <enumeratedValueSet variable="depletion-rate">
+      <value value="0.66"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="move-before" first="0" step="20" last="100"/>
+    <enumeratedValueSet variable="smoothness">
+      <value value="0"/>
+      <value value="1"/>
+      <value value="2"/>
+      <value value="4"/>
+      <value value="8"/>
+      <value value="12"/>
+      <value value="16"/>
+      <value value="25"/>
+      <value value="40"/>
+      <value value="60"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="e6" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
+    <setup>setup
+reset-ticks</setup>
+    <go>go</go>
+    <final>print behaviorspace-run-number</final>
+    <timeLimit steps="78"/>
+    <metric>word run-seed</metric>
+    <metric>I-resource-init</metric>
+    <metric>I-util-init</metric>
+    <metric>I-util</metric>
+    <metric>I-resource</metric>
+    <metric>nni</metric>
+    <metric>report-mean-energy</metric>
+    <metric>report-mean-movelen</metric>
+    <metric>report-mean-exptime</metric>
+    <metric>report-mean-logmobturn</metric>
+    <metric>report-mean-moves</metric>
+    <metric>report-mean-fradius</metric>
+    <metric>report-std-energy</metric>
+    <metric>report-std-movelen</metric>
+    <metric>report-std-exptime</metric>
+    <metric>report-std-logmobturn</metric>
+    <metric>report-std-moves</metric>
+    <metric>report-std-fradius</metric>
+    <metric>residential-moves</metric>
+    <enumeratedValueSet variable="num-bases">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="base-population">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="coloring">
+      <value value="&quot;resources&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="the-random-seed">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="smoothness">
+      <value value="0"/>
+      <value value="5"/>
+      <value value="30"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="std-energy">
+      <value value="1"/>
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-thresh">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="patch-size-km">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-logistic-move">
+      <value value="12"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-residential-move">
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="recover-in-nyear">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="depletion-rate">
+      <value value="0.66"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="mean-energy-rate-km" first="0.6" step="0.2" last="5"/>
+    <steppedValueSet variable="move-start-cost" first="0" step="4" last="100"/>
+  </experiment>
+  <experiment name="e7" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
+    <setup>setup
+reset-ticks</setup>
+    <go>go</go>
+    <final>print behaviorspace-run-number</final>
+    <timeLimit steps="78"/>
+    <metric>word run-seed</metric>
+    <metric>std-energy</metric>
+    <metric>mean-energy-rate-km</metric>
+    <metric>residential-moves</metric>
+    <metric>I-resource-init</metric>
+    <metric>I-util-init</metric>
+    <metric>I-util</metric>
+    <metric>I-resource</metric>
+    <metric>nni</metric>
+    <metric>report-mean-energy</metric>
+    <metric>report-mean-movelen</metric>
+    <metric>report-mean-exptime</metric>
+    <metric>report-mean-logmobturn</metric>
+    <metric>report-mean-moves</metric>
+    <metric>report-mean-fradius</metric>
+    <metric>report-std-energy</metric>
+    <metric>report-std-movelen</metric>
+    <metric>report-std-exptime</metric>
+    <metric>report-std-logmobturn</metric>
+    <metric>report-std-moves</metric>
+    <metric>report-std-fradius</metric>
+    <enumeratedValueSet variable="num-bases">
+      <value value="30"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="base-population">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="coloring">
+      <value value="&quot;resources&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="the-random-seed">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="std-energy">
+      <value value="6.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="resource-thresh">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="patch-size-km">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="mean-energy-rate-km">
+      <value value="1.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-logistic-move">
+      <value value="12"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-residential-move">
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="recover-in-nyear">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="move-start-cost" first="0" step="2" last="60"/>
+    <enumeratedValueSet variable="depletion-rate">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="move-before" first="0" step="0.1" last="1"/>
+    <enumeratedValueSet variable="smoothness">
+      <value value="0"/>
+      <value value="1"/>
+      <value value="2"/>
+      <value value="4"/>
+      <value value="8"/>
+      <value value="12"/>
+      <value value="16"/>
+      <value value="25"/>
+      <value value="40"/>
+      <value value="60"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="e8" repetitions="1" sequentialRunOrder="false" runMetricsEveryStep="true">
+    <setup>setup
+reset-ticks</setup>
+    <go>go</go>
+    <final>print behaviorspace-run-number</final>
+    <timeLimit steps="78"/>
+    <metric>word run-seed</metric>
+    <metric>I-resource-init</metric>
+    <metric>I-util-init</metric>
+    <metric>I-util</metric>
+    <metric>I-resource</metric>
+    <metric>nni</metric>
+    <metric>report-mean-energy</metric>
+    <metric>report-mean-movelen</metric>
+    <metric>report-mean-exptime</metric>
+    <metric>report-mean-logmobturn</metric>
+    <metric>report-mean-moves</metric>
+    <metric>report-mean-fradius</metric>
+    <metric>report-std-energy</metric>
+    <metric>report-std-movelen</metric>
+    <metric>report-std-exptime</metric>
+    <metric>report-std-logmobturn</metric>
+    <metric>report-std-moves</metric>
+    <metric>report-std-fradius</metric>
+    <metric>residential-moves</metric>
+    <enumeratedValueSet variable="num-bases">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="base-population">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="coloring">
+      <value value="&quot;resources&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="the-random-seed">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <steppedValueSet variable="smoothness" first="0" step="1" last="40"/>
+    <steppedValueSet variable="std-energy-rate" first="0" step="0.2" last="6"/>
+    <enumeratedValueSet variable="resource-thresh">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="patch-size-km">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-logistic-move">
+      <value value="12"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-residential-move">
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="recover-in-nyear">
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="depletion-rate">
+      <value value="0.66"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="mean-energy-rate-km">
+      <value value="1.4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="move-start-cost">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="move-before">
       <value value="0"/>
     </enumeratedValueSet>
   </experiment>

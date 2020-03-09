@@ -1,3 +1,10 @@
+; Copyright (c) 2018-20 Kaarel Sikk, C²DH, University of Luxembourg
+; Licensed under the Creative Commons
+; Attribution-NonCommercial-ShareAlike 4.0 License
+; See Info tab for full copyright and license information
+;
+; Setup and functions of landscape related functions
+
 patches-own [
   ; resource configuration - @todo maybe remove
   resource-type
@@ -33,9 +40,10 @@ patches-own [
   Ii
 ]
 
+; Setup the environment
 to setup-patches
   ask patches [
-    ;set height (random 100) ; for landscape generation
+    ;set height (random 100) ; future: for landscape generation
     set energy (random-normal mean-energy-rate std-energy) ; energy rate
     set resource-type (random num-resources)
     set harvested 0
@@ -65,6 +73,7 @@ to setup-patches
   ask patches [
     set energy energy * a
     set active-energy energy
+    set tmp-agent-costs 1
   ]
   
   ask patches [
@@ -73,6 +82,7 @@ to setup-patches
   
 end
 
+; Setup patches in uniform energy distribution
 to setup-null-patches
   ask patches [
     set energy (mean-energy-rate) ; productivity
@@ -89,7 +99,6 @@ end
   
 ; Calculate max utility of the location given by summed energy-rate of accessible patches
 ; Utility is energy rate hreq kCal / DAY 
-
 to calc-max-utility [me-patch]
   
   set max-logistic-move min list (forage-speed * 3.9) max-logistic-move
@@ -99,6 +108,7 @@ to calc-max-utility [me-patch]
   set utility max-utility 
 end
 
+; calculate utility of a location
 to calc-utility [me-patch]
   ; Utility of a location is the summed energy rates of given place and all accessible places, the rates are calculated taken into account the
   ; the distance and transportation on humanrequirement kCal/humanday, we assume foragers are moving to forage for a 8h human workday,
@@ -123,6 +133,7 @@ end
 ;  set utility (max-utility - sum [active-energy * (8 - (2 * distance me-patch * patch-size-km / forage-speed) ) / 8] of vicinity)
 ;end
 
+; Highlight alternative locations visually
 to highlight-alts
   ask bases [
     ask patch alt-xcor alt-ycor
